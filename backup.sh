@@ -1744,7 +1744,7 @@ retention_local_cleanup() {
     local remaining="${#succ[@]}"
     for p in "${delete_list[@]}"; do
         if (( remaining - 1 < min )); then
-            log_warn "本地清理: 达到最少保留数量 ($min), 停止删除"
+            log_info "本地清理: 达到最少保留数量 ($min), 停止删除"
             cleanup_status="PROTECTED"
             break
         fi
@@ -1839,7 +1839,7 @@ retention_remote_cleanup() {
         [[ -z "$entry" ]] && continue
         d="${entry%%|*}"; r="${entry##*|}"
         if (( remaining - 1 < min )); then
-            log_warn "远端清理: 达到最少保留数量 ($min), 停止"
+            log_info "远端清理: 达到最少保留数量 ($min), 停止"
             cleanup_status="PROTECTED"
             break
         fi
@@ -1959,6 +1959,7 @@ RUN_REMOTE_SIZE=0
 project_enabled() { [[ "$(project_get "$1" enabled)" == "true" ]]; }
 
 SELECTED_PROJECT=""
+FULL_RUN=1
 declare -a ACTIVE_IDS=()
 
 compute_active_ids() {
@@ -2516,14 +2517,13 @@ on_signal() {
 # 解析 run 参数
 cmd_run() {
     local dry=0 auto=0 allow_interact=0
-    local arg
-    for arg in "$@"; do
-        case "$arg" in
-            --automatic) auto=1 ;;
-            --dry-run)   dry=1 ;;
-            --interactive) allow_interact=1 ;;
-            --project)   SELECTED_PROJECT="${2:-}"; shift ;;
-            *) fail "未知的 run 参数: $arg"; return "$E_GENERAL" ;;
+    while (( $# > 0 )); do
+        case "$1" in
+            --automatic)   auto=1; shift ;;
+            --dry-run)     dry=1; shift ;;
+            --interactive) allow_interact=1; shift ;;
+            --project)     SELECTED_PROJECT="${2:-}"; shift 2 ;;
+            *) fail "未知的 run 参数: $1"; return "$E_GENERAL" ;;
         esac
     done
 
@@ -2541,6 +2541,8 @@ cmd_run() {
         return "$E_CONFIG"
     fi
     compute_active_ids
+    FULL_RUN=1
+    if [[ -n "$SELECTED_PROJECT" ]]; then FULL_RUN=0; fi
 
     if (( dry == 1 )); then
         cmd_run_dry
@@ -2566,7 +2568,7 @@ cmd_run() {
 
     log_setup_run
     log_line INFO "run" "=============================================="
-    log_line INFO "run" "开始完整备份 (run_id=$RUN_ID, mode=$CURRENT_MODE)"
+    log_line INFO "run" "开始备份 (run_id=$RUN_ID, mode=$CURRENT_MODE)"
     log_line INFO "run" "版本: $BACKUP_MANAGER_VERSION"
 
     # 初始化状态
@@ -2614,10 +2616,15 @@ cmd_run() {
     if (( ${#ACTIVE_IDS[@]} == 0 )); then all_ok=0; fi
 
     local overall="SUCCESS"
-    (( all_ok == 0 )) && overall="PARTIAL"
+    local overall_code=0
+    if (( all_ok == 0 )); then
+        overall="PARTIAL"; overall_code="$E_BACKUP"
+    elif (( FULL_RUN == 0 )); then
+        overall="PROJECT_ONLY"
+    fi
 
     # manifest (先按当前 overall, 上传后可能更新)
-    write_manifest "$run_dir" "$overall" "$( ((all_ok==1)) && echo 0 || echo $E_BACKUP )"
+    write_manifest "$run_dir" "$overall" "$overall_code"
 
     RUN_LOCAL_SIZE="$(run_dir_size "$run_dir")"
     log_info "本地备份总大小: $(bytes_to_human "$RUN_LOCAL_SIZE")"
@@ -2664,9 +2671,9 @@ cmd_run() {
     fi
     RUN_REMOTE_VERIFY=1
 
-    # 标记
+    # 标记 (只有完整运行才写 RUN_COMPLETE)
     local marker="RUN_PARTIAL"
-    (( all_ok == 1 )) && marker="RUN_COMPLETE"
+    (( all_ok == 1 && FULL_RUN == 1 )) && marker="RUN_COMPLETE"
     if ! remote_write_marker "$run_dir" "$date" "$RUN_ID" "$marker"; then
         write_manifest "$run_dir" "UPLOAD_ERROR" "$E_REMOTE_UPLOAD"
         state_write_last_run "UPLOAD_ERROR" "$E_REMOTE_UPLOAD" "$(( $(now_epoch) - RUN_START_EPOCH ))" "$RUN_LOCAL_SIZE" "$RUN_REMOTE_SIZE" "SKIPPED" "$(remote_safe_free)"
@@ -2678,7 +2685,7 @@ cmd_run() {
     local exit_code=0
     local status="$overall"
 
-    if (( all_ok == 1 )); then
+    if (( all_ok == 1 && FULL_RUN == 1 )); then
         # 完整成功: 更新 last-success, 执行常规清理
         state_write_last_success
         log_info "执行 retention 清理..."
@@ -2686,7 +2693,11 @@ cmd_run() {
         lc="$(retention_local_cleanup)"; log_info "本地清理: $lc"
         rc2="$(retention_remote_cleanup)"; log_info "远端清理: $rc2"
         cleanup_status="OK"
-        if [[ "$lc" != "OK" && "$lc" != "NO_LOCAL_DIR" ]] || [[ "$rc2" != "OK" ]]; then
+        # PROTECTED = 达到最少保留数量, 属于正常状态, 不算警告
+        local cleanup_bad=0
+        case "$lc" in OK|NO_LOCAL_DIR|PROTECTED) ;; *) cleanup_bad=1 ;; esac
+        case "$rc2" in OK|PROTECTED) ;; *) cleanup_bad=1 ;; esac
+        if (( cleanup_bad == 1 )); then
             cleanup_status="WARN"
             status="SUCCESS_WITH_WARNINGS"
             exit_code="$E_MAINTENANCE"
@@ -2695,6 +2706,13 @@ cmd_run() {
             status="SUCCESS"
             exit_code=0
         fi
+        write_manifest "$run_dir" "$status" "$exit_code"
+    elif (( all_ok == 1 )); then
+        # 单项目备份: 不算完整成功, 不更新 last-success, 不执行常规清理
+        log_info "本次为单项目备份: 不更新 last-success, 跳过历史清理"
+        cleanup_status="SKIPPED_PROJECT_ONLY"
+        status="PROJECT_ONLY"
+        exit_code=0
         write_manifest "$run_dir" "$status" "$exit_code"
     else
         # Partial: 不更新 last-success, 不危险清理
@@ -2756,7 +2774,7 @@ print_run_result() {
         SUCCESS_WITH_WARNINGS) color="$C_YELLOW" ;;
     esac
     printf '状态: %s%s%s\n' "$color" "$status" "$C_RESET"
-    if [[ "$status" == "PARTIAL" ]]; then
+    if [[ "$status" == "PARTIAL" || "$status" == "PROJECT_ONLY" ]]; then
         printf '%s历史备份清理已跳过%s\n' "$C_YELLOW" "$C_RESET"
     fi
 }
