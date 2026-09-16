@@ -422,6 +422,16 @@ release_lock() {
     # FD 关闭后自动释放锁
 }
 
+# 锁信息是否对应一个仍然存活的任务
+lock_is_active() {
+    [[ -f "$LOCK_INFO_FILE" ]] || return 1
+    local pid
+    pid="$(grep -E '^pid=' "$LOCK_INFO_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    return 0
+}
+
 # =============================================================================
 # Config
 # =============================================================================
@@ -3644,7 +3654,7 @@ cmd_status() {
         printf '  (无法获取)\n'
     fi
     printf '\n[锁]\n'
-    if [[ -f "$LOCK_INFO_FILE" ]]; then
+    if lock_is_active; then
         printf '  有任务运行中:\n'; sed 's/^/    /' "$LOCK_INFO_FILE"
     else
         printf '  空闲\n'
@@ -3773,7 +3783,7 @@ cmd_check() {
     fi
 
     printf '\n[锁]\n'
-    if [[ -f "$LOCK_INFO_FILE" ]]; then printf '  %s有任务运行中%s\n' "$C_YELLOW" "$C_RESET"; sed 's/^/    /' "$LOCK_INFO_FILE"; else printf '  空闲\n'; fi
+    if lock_is_active; then printf '  %s有任务运行中%s\n' "$C_YELLOW" "$C_RESET"; sed 's/^/    /' "$LOCK_INFO_FILE"; else printf '  空闲\n'; fi
 
     printf '\n'
     if (( rc == 0 )); then
