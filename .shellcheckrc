@@ -1,0 +1,5 @@
+# Backup Manager 的 ShellCheck 配置
+shell=bash
+severity=warning
+# 测试通过绝对路径 source lib.sh，这里不跟踪外部引用。
+external-sources=false

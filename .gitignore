@@ -1,0 +1,35 @@
+# --- 运行期数据（切勿提交）---
+backup.conf
+backup.conf.bak
+backup.conf.bak.*
+logs/
+state/
+cache/
+restore-history/
+*.partial
+*.log
+
+# --- 测试产物 ---
+/tmp/bm-tests/
+tests/**/sandbox/
+*.tmp
+
+# --- 密钥 ---
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# --- 编辑器 / 系统 ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- 构建 / 打包 ---
+/dist/
+*.tar.gz

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 语法、静态检查与测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: bash -n
+        run: |
+          bash -n backup.sh
+          bash -n install.sh
+
+      - name: shellcheck
+        run: |
+          shellcheck -S warning backup.sh install.sh tests/*.sh tests/fakebin/rclone
+
+      - name: 版本号一致性
+        run: |
+          v="$(cat VERSION)"
+          grep -q "BACKUP_MANAGER_VERSION=\"$v\"" backup.sh \
+            || { echo "VERSION ($v) 与 backup.sh 不一致"; exit 1; }
+          echo "版本: $v"
+
+      - name: 运行测试套件
+        run: bash tests/run-all.sh

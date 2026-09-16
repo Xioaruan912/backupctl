@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/Xioaruan912/backupctl/security/advisories/new
+    about: 请私下报告安全问题，不要开公开 issue。
+  - name: 提问与讨论
+    url: https://github.com/Xioaruan912/backupctl/discussions
+    about: 在这里提问和分享你的使用方式。

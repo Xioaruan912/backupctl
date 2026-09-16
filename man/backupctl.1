@@ -1,0 +1,122 @@
+.TH BACKUPCTL 1 "2026-09-16" "Backup Manager 2.1.0" "用户命令"
+.SH 名称
+backupctl \- 智能服务器备份管理工具
+.SH 概要
+.B backupctl
+.RI [ 命令 ]
+.RI [ 选项 ]
+.SH 描述
+.B backupctl
+是一个单文件 Bash 备份管理器，面向个人服务器。它创建带时间戳、经过校验的
+.BR tar.gz
+快照，通过
+.BR rclone
+上传到 OneDrive，进行校验，并安全地清理旧快照。它可以从本地或远端恢复，既能
+交互使用，也能完全非交互运行。
+.PP
+配置位于
+.I /root/backup-manager/backup.conf
+，只作为惰性数据解析，绝不会被 source。
+.SH 命令
+.TP
+.B （无参数）
+打开交互菜单（需要 TTY）。没有 TTY 时打印帮助后退出。
+.TP
+.B run [--automatic|--dry-run] [--project ID]
+执行备份。
+.B --dry-run
+会进行扫描、打分以及容量和保留策略预览，但不做任何修改。
+.TP
+.B status
+显示最近一次运行、最近一次成功、本地快照、远端容量与锁状态。
+.TP
+.B check
+执行环境、配置、项目和远端诊断。
+.TP
+.B project list|add|edit|enable|disable|remove|exclude|protect
+管理项目。删除项目只会删除它的配置。
+.TP
+.B restore [--local|--remote] [--run R] [--date D] [--project ID]
+恢复项目。也接受
+.BR --rollback "、" --history " 和 " --list 。
+.TP
+.B remote status|list|verify|purge [--legacy <date>|--legacy-expired]
+查看或校验 OneDrive 远端。
+.B purge
+可删除新格式快照（
+.BI <date> " " <run>
+），或用
+.B --legacy
+删除某个旧版扁平日期目录，或用
+.B --legacy-expired
+删除所有过期的旧版扁平目录（
+.B --yes
+用于非交互）。
+.TP
+.B schedule install|modify|status|run|remove
+管理 systemd timer。
+.TP
+.B logs [行数]
+显示最近的日志文件。
+.TP
+.B config rollback|show
+显示配置，或从
+.I backup.conf.bak
+恢复。
+.SH 文件
+.TP
+.I /root/backup-manager/backup.conf
+配置（root:600）。
+.TP
+.I /root/backup-manager/state/last-run.conf
+最近一次运行摘要。
+.TP
+.I /root/backup-manager/state/last-success.conf
+最近一次完整校验通过的运行。
+.TP
+.I /root/backup/backup/YYYY-MM-DD/RUN_ID/
+本地快照。
+.TP
+.I onedrive:backup/YYYY-MM-DD/RUN_ID/
+远端快照。
+.SH 退出状态
+.TP
+.B 0
+成功。
+.TP
+.B 1
+一般错误。
+.TP
+.B 2
+配置错误。
+.TP
+.B 3
+备份错误（部分失败）。
+.TP
+.B 4
+远端上传错误。
+.TP
+.B 5
+远端校验错误。
+.TP
+.B 6
+容量错误。
+.TP
+.B 7
+钩子错误。
+.TP
+.B 8
+已加锁（有任务正在运行）。
+.TP
+.B 9
+恢复错误。
+.TP
+.B 10
+维护错误（备份成功但有警告）。
+.SH 参见
+.BR tar (1),
+.BR rclone (1),
+.BR systemd.timer (5),
+.BR sha256sum (1)
+.SH 作者
+Backup Manager contributors。

@@ -1,0 +1,66 @@
+name: Bug 报告
+description: 出现了与文档不符的行为
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间报告问题。提交前请移除任何密钥（rclone token、密码、
+        会暴露隐私的路径）。安全漏洞请改用 SECURITY.md 中的方式报告。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 执行 `backupctl --version` 的输出
+      placeholder: "2.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: 操作系统、发行版、Bash 与 rclone 版本
+      placeholder: "Debian 13, Bash 5.2.37, rclone 1.75.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 描述观察到的行为，以及你预期的行为。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请附上确切的命令，最好使用 `backupctl run --dry-run`。
+      placeholder: |
+        1. backupctl ...
+        2. backupctl ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 粘贴 `backupctl logs` 或运行日志中的相关行。
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已从报告中移除密钥/token
+          required: true
+        - label: 这不是安全漏洞（见 SECURITY.md）
+          required: true

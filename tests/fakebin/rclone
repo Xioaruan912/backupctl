@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Fake rclone for Backup Manager tests.
+# Controlled via env:
+#   FAKE_RCLONE_STATE_DIR   local dir backing the "remote"
+#   FAKE_FREE_BYTES         reported free bytes (default 50 GiB)
+#   FAKE_TOTAL_BYTES        reported total bytes (default 50 GiB)
+#   FAKE_RCLONE_ABOUT_FAIL  1 = about fails
+#   FAKE_RCLONE_UPLOAD_FAIL 1 = copy/copyto fails
+#   FAKE_RCLONE_CHECK_FAIL  1 = check fails
+set -u
+
+STATE="${FAKE_RCLONE_STATE_DIR:-/tmp/fake_rclone}"
+mkdir -p "$STATE"
+
+TOTAL="${FAKE_TOTAL_BYTES:-53687091200}"
+FREE="${FAKE_FREE_BYTES:-53687091200}"
+
+# remote:path -> local mirror; also accept "remote:" with no path
+map_remote() {
+    local r="$1"
+    if [[ "$r" == *:* ]]; then
+        local path="${r#*:}"
+        path="${path#/}"
+        printf '%s/%s' "$STATE" "$path"
+    else
+        printf '%s' "$r"
+    fi
+}
+
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+    version)
+        echo "rclone v1.75.0-fake"
+        ;;
+    about)
+        [[ "${FAKE_RCLONE_ABOUT_FAIL:-0}" == "1" ]] && { echo "failed to query: fake error" >&2; exit 1; }
+        local_used=0
+        if [[ -d "$STATE" ]]; then local_used="$(du -sb "$STATE" 2>/dev/null | awk '{print $1}')"; fi
+        used=$(( TOTAL - FREE ))
+        (( used < local_used )) && used="$local_used"
+        if [[ "${1:-}" == "--json" || "${2:-}" == "--json" || "$*" == *--json* ]]; then
+            printf '{"total":%s,"used":%s,"free":%s,"trashed":0}\n' "$TOTAL" "$used" "$FREE"
+        else
+            printf 'Total:   %s\n' "$TOTAL"
+            printf 'Used:    %s\n' "$used"
+            printf 'Free:    %s\n' "$FREE"
+            printf 'Trashed: 0\n'
+        fi
+        ;;
+    copy)
+        src="$1"; dst="$2"
+        [[ "${FAKE_RCLONE_UPLOAD_FAIL:-0}" == "1" ]] && { echo "fake upload failure" >&2; exit 1; }
+        s="$(map_remote "$src")"; target="$(map_remote "$dst")"
+        mkdir -p "$target"
+        cp -a "$s"/. "$target"/ 2>/dev/null || cp -a "$s" "$target"
+        ;;
+    copyto)
+        src="$1"; dst="$2"
+        [[ "${FAKE_RCLONE_UPLOAD_FAIL:-0}" == "1" ]] && { echo "fake upload failure" >&2; exit 1; }
+        s="$(map_remote "$src")"; target="$(map_remote "$dst")"
+        mkdir -p "$(dirname "$target")"
+        cp -a "$s" "$target"
+        ;;
+    check)
+        [[ "${FAKE_RCLONE_CHECK_FAIL:-0}" == "1" ]] && { echo "fake check failure" >&2; exit 1; }
+        src="$1"; dst="$2"
+        src="$(map_remote "$src")"
+        target="$(map_remote "$dst")"
+        if [[ ! -d "$target" ]]; then echo "target missing" >&2; exit 1; fi
+        # verify every file/dir in src exists in target
+        ( cd "$src" && find . -mindepth 1 | sort ) > /tmp/.fake_src.$$
+        ( cd "$target" 2>/dev/null && find . -mindepth 1 | sort ) > /tmp/.fake_dst.$$ || true
+        if ! diff -q /tmp/.fake_src.$$ /tmp/.fake_dst.$$ >/dev/null 2>&1; then
+            echo "differences found" >&2
+            rm -f /tmp/.fake_src.$$ /tmp/.fake_dst.$$
+            exit 1
+        fi
+        rm -f /tmp/.fake_src.$$ /tmp/.fake_dst.$$
+        ;;
+    lsf)
+        target="$(map_remote "${1:-}")"
+        shift || true
+        dirs_only=0; files_only=0
+        for a in "$@"; do
+            [[ "$a" == "--dirs-only" ]] && dirs_only=1
+            [[ "$a" == "--files-only" ]] && files_only=1
+        done
+        [[ -d "$target" ]] || exit 0
+        while IFS= read -r e; do
+            base="$(basename "$e")"
+            if [[ -d "$e" ]]; then
+                (( files_only == 1 )) && continue
+                printf '%s/\n' "$base"
+            else
+                (( dirs_only == 1 )) && continue
+                printf '%s\n' "$base"
+            fi
+        done < <(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sort)
+        ;;
+    purge|rmdir)
+        target="$(map_remote "${1:-}")"
+        rm -rf -- "$target"
+        ;;
+    size)
+        target="$(map_remote "${1:-}")"
+        n=0; b=0
+        if [[ -d "$target" ]]; then
+            n="$(find "$target" -type f 2>/dev/null | wc -l)"
+            b="$(du -sb "$target" 2>/dev/null | awk '{print $1}')"
+        fi
+        printf 'Total objects: %s\nTotal size: %s Bytes\n' "$n" "${b:-0}"
+        ;;
+    *)
+        echo "fake rclone: unsupported command '$cmd'" >&2
+        exit 1
+        ;;
+esac
+exit 0
